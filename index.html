@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>菜菜专用答题系统</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f5f7fa
+    color: #333;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 顶部进度条 */
+  .progress-bar {
+    height: 4px;
+    background: #e8ecf0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4f8cff, #6c5ce7);
+    transition: width 0.3s ease;
+  }
+
+  /* 顶部标题栏 */
+  header {
+    background: #fff;
+    padding: 12px 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    position: sticky;
+    top: 4px;
+    z-index: 99;
+  }
+  header h1 {
+    font-size: 18px;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stats {
+    display: flex;
+    gap: 18px;
+    font-size: 13px;
+    color: #666;
+    flex-wrap: wrap;
+  }
+  .stats span { white-space: nowrap; }
+  .stats .num { font-weight: 600; color: #4f8cff; }
+  .stats .correct { color: #27ae60; }
+  .stats .wrong { color: #e74c3c; }
+  .timer { font-family: monospace; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 6px 14px;
+    border: 1px solid #d0d7de;
+    background: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+    color: #444;
+  }
+  .btn:hover { border-color: #4f8cff; color: #4f8cff; background: #f0f5ff; }
+  .btn.active { background: #4f8cff; color: #fff; border-color: #4f8cff; }
+  .btn.warn:hover { border-color: #e74c3c; color: #e74c3c; }
+
+  /* 主答题区 */
+  main {
+    flex: 1;
+    padding: 30px 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .question-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  }
+  .question-num {
+    display: inline-block;
+    background: #f0f5ff;
+    color: #4f8cff;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .question-text {
+    font-size: 17px;
+    line-height: 1.7;
+    color: #2c3e50;
+    margin-bottom: 28px;
+  }
+
+  /* 选项卡片 */
+  .options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .option {
+    border: 2px solid #e8ecf0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 15px;
+    line-height: 1.6;
+    user-select: none;
+  }
+  .option:hover { border-color: #4f8cff; background: #fafbff; }
+  .option .letter {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #f0f3f7;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .option .text { flex: 1; }
+
+  /* 已选 - 正确 */
+  .option.correct {
+    border-color: #27ae60;
+    background: #eafaf1;
+  }
+  .option.correct .letter {
+    background: #27ae60;
+    color: #fff;
+  }
+
+  /* 已选 - 错误 */
+  .option.wrong {
+    border-color: #e74c3c;
+    background: #fdedec;
+  }
+  .option.wrong .letter {
+    background: #e74c3c;
+    color: #fff;
+  }
+
+  /* 正确答案高亮（用户选错后） */
+  .option.show-correct {
+    border-color: #27ae60;
+    background: #eafaf1;
+  }
+  .option.show-correct .letter {
+    background: #27ae60;
+    color: #fff;
+  }
+
+  /* 禁用状态 */
+  .option.disabled { pointer-events: none; }
+
+  /* 答案解析区 */
+  .answer-info {
+    margin-top: 24px;
+    padding: 16px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .answer-info.correct-info {
+    background: #eafaf1;
+    border-left: 4px solid #27ae60;
+    color: #1e7e44;
+  }
+  .answer-info.wrong-info {
+    background: #fdedec;
+    border-left: 4px solid #e74c3c;
+    color: #a93226;
+  }
+  .answer-info .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 8px;
+  }
+  .correct-info .tag { background: #27ae60; color: #fff; }
+  .wrong-info .tag { background: #e74c3c; color: #fff; }
+
+  /* 底部导航 */
+  .bottom-nav {
+    background: #fff;
+    border-top: 1px solid #e8ecf0;
+    padding: 16px 24px;
+    position: sticky;
+    bottom: 0;
+  }
+  .nav-buttons {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 800px;
+    margin: 0 auto;
+    gap: 12px;
+  }
+  .nav-buttons .btn { padding: 10px 20px; font-size: 14px; }
+  .nav-buttons .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* 题号网格 */
+  .num-grid-wrapper {
+    max-width: 800px;
+    margin: 16px auto 0;
+  }
+  .num-grid-toggle {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .num-grid-toggle button {
+    background: none;
+    border: none;
+    color: #4f8cff;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .num-grid-toggle button:hover { text-decoration: underline; }
+
+  .num-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 6px;
+    padding: 12px;
+    background: #f8f9fc;
+    border-radius: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .num-grid .num-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #d0d7de;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .num-grid .num-btn:hover { border-color: #4f8cff; }
+  .num-grid .num-btn.current {
+    background: #4f8cff;
+    color: #fff;
+    border-color: #4f8cff;
+    font-weight: 600;
+  }
+  .num-grid .num-btn.done-correct {
+    background: #27ae60;
+    color: #fff;
+    border-color: #27ae60;
+  }
+  .num-grid .num-btn.done-wrong {
+    background: #e74c3c;
+    color: #fff;
+    border-color: #e74c3c;
+  }
+
+  /* 错题本按钮 */
+  .wrong-book-toggle {
+    background: #fff3cd !important;
+    border-color: #ffc107 !important;
+    color: #856404 !important;
+  }
+  .wrong-book-toggle.active {
+    background: #ffc107 !important;
+    color: #fff !important;
+  }
+
+  /* 统计面板 */
+  .summary {
+    background: #fff;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  }
+  .summary h2 { color: #2c3e50; margin-bottom: 20px; font-size: 20px; }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .summary-item {
+    padding: 16px;
+    background: #f8f9fc;
+    border-radius: 8px;
+  }
+  .summary-item .v {
+    font-size: 28px;
+    font-weight: 700;
+    color: #4f8cff;
+  }
+  .summary-item .v.correct { color: #27ae60; }
+  .summary-item .v.wrong { color: #e74c3c; }
+  .summary-item .v.rate { color: #8e44ad; }
+  .summary-item .v.time { color: #e67e22; }
+  .summary-item .label {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  .hint {
+    color: #aaa;
+    font-size: 12px;
+    text-align: center;
+    margin-top: 16px;
+  }
+
+  @media (max-width: 600px) {
+    main { padding: 20px 12px; }
+    .question-card { padding: 20px; }
+    header { padding: 10px 16px; }
+    header h1 { font-size: 16px; }
+    .stats { gap: 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar">
+  <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
+</div>
+
+<div id="app">
+  <header>
+    <h1>📖 菜菜专用答题系统</h1>
+    <div class="stats">
+      <span>第 <span class="num">{{ currentIndex + 1 }}</span>/{{ questionOrder.length }} 题</span>
+      <span>已做 <span class="num">{{ answeredCount }}</span></span>
+      <span class="correct">✓ {{ correctCount }}</span>
+      <span class="wrong">✗ {{ wrongCount }}</span>
+      <span>正确率 <span class="num">{{ accuracy }}%</span></span>
+      <span class="timer">⏱ {{ formatTime(elapsedTime) }}</span>
+    </div>
+    <div class="controls">
+      <button class="btn" :class="{ active: mode === 'sequential' }" @click="switchMode('sequential')">顺序</button>
+      <button class="btn" :class="{ active: mode === 'random' }" @click="switchMode('random')">随机</button>
+      <button class="btn wrong-book-toggle" :class="{ active: wrongBookMode }" @click="toggleWrongBook">
+        📕 错题本 ({{ wrongBook.length }})
+      </button>
+      <button class="btn" @click="resetAll" title="重置所有进度">🔄 重置</button>
+    </div>
+  </header>
+
+  <main v-if="currentQuestion">
+    <div class="question-card">
+      <div class="question-num">第 {{ currentQuestion.num }} 题</div>
+      <div class="question-text">{{ currentQuestion.question }}</div>
+
+      <div class="options">
+        <div
+          v-for="opt in displayOptions"
+          :key="opt.key"
+          class="option"
+          :class="getOptionClass(opt.key)"
+          @click="selectOption(opt.key)"
+        >
+          <div class="letter">{{ opt.key }}</div>
+          <div class="text">{{ opt.text }}</div>
+        </div>
+      </div>
+
+      <div v-if="userAnswers[currentQuestion.num]" class="answer-info"
+        :class="isCorrect(currentQuestion.num) ? 'correct-info' : 'wrong-info'">
+        <span class="tag">{{ isCorrect(currentQuestion.num) ? '回答正确' : '回答错误' }}</span>
+        正确答案：<strong>{{ getCorrectAnswer(currentQuestion.num) }}</strong>
+        <span v-if="userAnswers[currentQuestion.num] !== getCorrectAnswer(currentQuestion.num)">
+          你的选择：<strong>{{ userAnswers[currentQuestion.num] }}</strong>
+        </span>
+      </div>
+    </div>
+  </main>
+
+  <div class="bottom-nav">
+    <div class="nav-buttons">
+      <button class="btn" :disabled="!canPrev" @click="prevQuestion">← 上一题</button>
+      <div style="font-size:13px;color:#888">
+        {{ currentQuestion ? '第 ' + currentQuestion.num + ' 题' : '' }}
+      </div>
+      <button class="btn" :disabled="!canNext" @click="nextQuestion">下一题 →</button>
+    </div>
+
+    <div class="num-grid-wrapper">
+      <div class="num-grid-toggle">
+        <button @click="showNumGrid = !showNumGrid">
+          {{ showNumGrid ? '▲ 收起题号' : '▼ 展开题号列表' }}
+        </button>
+      </div>
+      <div class="num-grid" v-if="showNumGrid">
+        <button
+          v-for="num in questionNums"
+          :key="num"
+          class="num-btn"
+          :class="getNumBtnClass(num)"
+          @click="jumpTo(num)"
+        >{{ num }}</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">
+    快捷键：A/B/C/D 选选项 · ← → 翻题 · R 随机 · W 错题本
+  </div>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="questions.js"></script>
+<script src="answers.js"></script>
+<script>
+const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
+
+// 将 questions.json 的内容保存为 questions.js 格式
+// 这里我们直接用全局变量 questions 和 window.ANSWERS
+
+const STORAGE_KEY = 'political-quiz-state-v1';
+
+// 选项解析函数（与 infer_answers.py 相同逻辑）
+function parseOptions(optionsDict) {
+  // 如果已有完整的 A/B/C/D key
+  if (optionsDict.A && optionsDict.B && optionsDict.C && optionsDict.D) {
+    return ['A','B','C','D'].map(k => ({ key: k, text: String(optionsDict[k]).trim() }));
+  }
+  // 从原始文本解析
+  const raw = Object.values(optionsDict).map(v => String(v)).join(' ');
+  const cleaned = raw.replace(/[\n\r\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const matches = [...cleaned.matchAll(/([A-D])\s*\.\s*/g)];
+  if (!matches.length) {
+    // 解析失败，尝试返回原始
+    return ['A','B','C','D'].filter(k => optionsDict[k])
+      .map(k => ({ key: k, text: String(optionsDict[k]).trim() }));
+  }
+  const result = {};
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const letter = m[1];
+    const start = m.index + m[0].length;
+    const end = i + 1 < matches.length ? matches[i+1].index : cleaned.length;
+    let text = cleaned.slice(start, end).trim();
+    text = text.replace(/\s*\d+\.\s*.*$/, '').trim();
+    text = text.replace(/\s+[A-D]\s*\.\s*/g, ' ').trim();
+    if (text) result[letter] = text;
+  }
+  if (matches[0][1] !== 'A') {
+    const aText = cleaned.slice(0, matches[0].index).trim();
+    if (aText) result['A'] = aText;
+  }
+  return ['A','B','C','D'].filter(k => result[k])
+    .map(k => ({ key: k, text: result[k] }));
+}
+
+// 排序函数确保 option 按 A-B-C-D 顺序
+function sortOptions(opts) {
+  return opts.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+createApp({
+  setup() {
+    const mode = ref('sequential'); // 'sequential' | 'random'
+    const wrongBookMode = ref(false);
+    const showNumGrid = ref(false);
+    const userAnswers = ref({});       // { num: 'A' }
+    const wrongBook = ref([]);          // [num1, num2, ...]
+    const answeredSet = ref(new Set());  // 已做过的题号
+    const elapsedTime = ref(0);         // 用时（秒）
+    let timer = null;
+
+    // 问题列表（全局变量 questions）
+    const allQuestions = (typeof questions !== 'undefined') ? questions : window.QUESTIONS || [];
+    const answerMap = (typeof window.ANSWERS !== 'undefined') ? window.ANSWERS : {};
+
+    // 解析每道题的选项
+    const parsedQuestions = allQuestions.map(q => ({
+      ...q,
+      parsedOptions: sortOptions(parseOptions(q.options))
+    }));
+
+    // 所有题号
+    const allNums = parsedQuestions.map(q => q.num);
+    const sortedNums = [...allNums].sort((a, b) => a - b);
+
+    // 题目顺序（当前显示的题号序列）
+    const questionOrder = ref([]);
+    const currentIndex = ref(0);
+
+    // 当前题目
+    const currentQuestion = computed(() => {
+      const num = questionOrder.value[currentIndex.value];
+      return parsedQuestions.find(q => q.num === num);
+    });
+
+    const displayOptions = computed(() => {
+      return currentQuestion.value ? currentQuestion.value.parsedOptions : [];
+    });
+
+    // 选项样式
+    function getOptionClass(key) {
+      const num = currentQuestion.value?.num;
+      if (!num) return '';
+      const userPick = userAnswers.value[num];
+      const correct = answerMap[num];
+      const answered = answeredSet.value.has(num);
+
+      if (!answered) return '';
+      if (userPick === key && key === correct) return 'correct disabled';
+      if (userPick === key && key !== correct) return 'wrong disabled';
+      if (key === correct && userPick !== correct) return 'show-correct disabled';
+      return 'disabled';
+    }
+
+    function getCorrectAnswer(num) {
+      return answerMap[num] || '';
+    }
+
+    function isCorrect(num) {
+      return userAnswers.value[num] === answerMap[num];
+    }
+
+    // 答题
+    function selectOption(key) {
+      const num = currentQuestion.value?.num;
+      if (!num || answeredSet.value.has(num)) return;
+      userAnswers.value[num] = key;
+      answeredSet.value.add(num);
+
+      // 更新错题本
+      if (key !== answerMap[num]) {
+        if (!wrongBook.value.includes(num)) {
+          wrongBook.value.push(num);
+        }
+      } else {
+        wrongBook.value = wrongBook.value.filter(n => n !== num);
+      }
+      saveState();
+    }
+
+    // 统计
+    const answeredCount = computed(() => answeredSet.value.size);
+    const correctCount = computed(() => {
+      let c = 0;
+      for (const num of answeredSet.value) {
+        if (userAnswers.value[num] === answerMap[num]) c++;
+      }
+      return c;
+    });
+    const wrongCount = computed(() => answeredCount.value - correctCount.value);
+    const accuracy = computed(() => {
+      if (answeredCount.value === 0) return 0;
+      return Math.round(correctCount.value / answeredCount.value * 100);
+    });
+    const progressPct = computed(() => {
+      const total = wrongBookMode.value ? wrongBook.value.length : questionOrder.value.length;
+      if (!total) return 0;
+      return Math.round(answeredCount.value / allNums.length * 100);
+    });
+
+    const canPrev = computed(() => currentIndex.value > 0);
+    const canNext = computed(() => currentIndex.value < questionOrder.value.length - 1);
+
+    // 题号按钮样式
+    function getNumBtnClass(num) {
+      const classes = [];
+      if (questionOrder.value[currentIndex.value] === num) classes.push('current');
+      if (answeredSet.value.has(num)) {
+        classes.push(isCorrect(num) ? 'done-correct' : 'done-wrong');
+      }
+      return classes.join(' ');
+    }
+
+    // 题号显示列表（根据模式）
+    const questionNums = computed(() => {
+      if (wrongBookMode.value) return wrongBook.value;
+      return questionOrder.value;
+    });
+
+    // 导航
+    function prevQuestion() { if (canPrev.value) { currentIndex.value--; saveState(); } }
+    function nextQuestion() { if (canNext.value) { currentIndex.value++; saveState(); } }
+    function jumpTo(num) {
+      const idx = questionOrder.value.indexOf(num);
+      if (idx >= 0) { currentIndex.value = idx; saveState(); }
+    }
+
+    // 模式切换
+    function switchMode(newMode) {
+      wrongBookMode.value = false;
+      if (mode.value === newMode) return;
+      mode.value = newMode;
+      rebuildQuestionOrder();
+    }
+
+    function rebuildQuestionOrder() {
+      if (mode.value === 'sequential') {
+        questionOrder.value = [...sortedNums];
+      } else {
+        questionOrder.value = [...sortedNums].sort(() => Math.random() - 0.5);
+      }
+      currentIndex.value = 0;
+      saveState();
+    }
+
+    function toggleWrongBook() {
+      wrongBookMode.value = !wrongBookMode.value;
+      if (wrongBookMode.value && wrongBook.value.length === 0) return;
+      if (wrongBookMode.value) {
+        questionOrder.value = [...wrongBook.value];
+        currentIndex.value = 0;
+      } else {
+        rebuildQuestionOrder();
+      }
+      saveState();
+    }
+
+    function resetAll() {
+      if (!confirm('确定要重置所有进度吗？这将清除所有答题记录和错题本。')) return;
+      userAnswers.value = {};
+      wrongBook.value = [];
+      answeredSet.value = new Set();
+      elapsedTime.value = 0;
+      rebuildQuestionOrder();
+      saveState();
+    }
+
+    // 时间格式化
+    function formatTime(seconds) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    // 键盘快捷键
+    function handleKeydown(e) {
+      // 忽略输入框中的事件
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const key = e.key.toUpperCase();
+      if (['A','B','C','D'].includes(key)) {
+        selectOption(key);
+      } else if (e.key === 'ArrowLeft') {
+        prevQuestion();
+      } else if (e.key === 'ArrowRight') {
+        nextQuestion();
+      } else if (key === 'R') {
+        switchMode(mode.value === 'sequential' ? 'random' : 'sequential');
+      } else if (key === 'W') {
+        toggleWrongBook();
+      }
+    }
+
+    // 持久化
+    function saveState() {
+      const state = {
+        mode: mode.value,
+        wrongBookMode: wrongBookMode.value,
+        questionOrder: questionOrder.value,
+        currentIndex: currentIndex.value,
+        userAnswers: userAnswers.value,
+        wrongBook: wrongBook.value,
+        answeredSet: [...answeredSet.value],
+        elapsedTime: elapsedTime.value
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const state = JSON.parse(raw);
+        mode.value = state.mode || 'sequential';
+        wrongBookMode.value = state.wrongBookMode || false;
+        questionOrder.value = state.questionOrder && state.questionOrder.length
+          ? state.questionOrder
+          : [...sortedNums];
+        currentIndex.value = Math.min(state.currentIndex || 0, questionOrder.value.length - 1);
+        userAnswers.value = state.userAnswers || {};
+        wrongBook.value = state.wrongBook || [];
+        answeredSet.value = new Set(state.answeredSet || []);
+        elapsedTime.value = state.elapsedTime || 0;
+        return true;
+      } catch(e) {
+        console.warn('加载状态失败', e);
+        return false;
+      }
+    }
+
+    onMounted(() => {
+      document.addEventListener('keydown', handleKeydown);
+      if (!loadState()) rebuildQuestionOrder();
+      timer = setInterval(() => {
+        elapsedTime.value++;
+      }, 1000);
+    });
+
+    onUnmounted(() => {
+      document.removeEventListener('keydown', handleKeydown);
+      if (timer) clearInterval(timer);
+    });
+
+    // 每 30 秒自动保存
+    let autoSaveTimer = null;
+    onMounted(() => {
+      autoSaveTimer = setInterval(saveState, 30000);
+    });
+    onUnmounted(() => {
+      if (autoSaveTimer) clearInterval(autoSaveTimer);
+    });
+
+    // 状态变化时保存
+    watch([userAnswers, wrongBook, currentIndex, mode], () => saveState());
+
+    return {
+      mode, wrongBookMode, showNumGrid,
+      userAnswers, wrongBook, answeredSet,
+      elapsedTime,
+      questionOrder, currentIndex,
+      currentQuestion, displayOptions,
+      answeredCount, correctCount, wrongCount, accuracy, progressPct,
+      canPrev, canNext, questionNums,
+      parseOptions,
+      getOptionClass, getCorrectAnswer, isCorrect, getNumBtnClass,
+      selectOption, prevQuestion, nextQuestion, jumpTo,
+      switchMode, toggleWrongBook, resetAll,
+      formatTime
+    };
+  }
+}).mount('#app');
+</script>
+
+</body>
+</html>
