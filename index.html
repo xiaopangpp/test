@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>菜菜专用答题系统</title>
- <script src="vue.global.prod.js"></script>
-<script src="questions.js"></script>
-<script src="answers.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -96,6 +93,13 @@
     font-size: 13px;
     font-weight: 600;
     margin-bottom: 16px;
+  }
+  .question-num .original-num {
+    color: #aaa;
+    font-weight: 400;
+    font-size: 12px;
+    margin-left: 6px;
+    cursor: help;
   }
   .question-text {
     font-size: 17px;
@@ -361,6 +365,7 @@
     <div class="controls">
       <button class="btn" :class="{ active: mode === 'sequential' }" @click="switchMode('sequential')">顺序</button>
       <button class="btn" :class="{ active: mode === 'random' }" @click="switchMode('random')">随机</button>
+      <button v-if="mode === 'random'" class="btn" @click="reshuffle" title="换一套新的乱序（不清除答题记录）">🔀 换一套</button>
       <button class="btn wrong-book-toggle" :class="{ active: wrongBookMode }" @click="toggleWrongBook">
         📕 错题本 ({{ wrongBook.length }})
       </button>
@@ -370,7 +375,7 @@
 
   <main v-if="currentQuestion">
     <div class="question-card">
-      <div class="question-num">第 {{ currentQuestion.num }} 题</div>
+      <div class="question-num">第 {{ displayNum }} 题 <span class="original-num" v-if="mode === 'random'" :title="'原题号 ' + currentQuestion.num">(原题 {{ currentQuestion.num }})</span></div>
       <div class="question-text">{{ currentQuestion.question }}</div>
 
       <div class="options">
@@ -401,7 +406,7 @@
     <div class="nav-buttons">
       <button class="btn" :disabled="!canPrev" @click="prevQuestion">← 上一题</button>
       <div style="font-size:13px;color:#888">
-        {{ currentQuestion ? '第 ' + currentQuestion.num + ' 题' : '' }}
+        {{ currentQuestion ? '第 ' + displayNum + ' 题' : '' }}
       </div>
       <button class="btn" :disabled="!canNext" @click="nextQuestion">下一题 →</button>
     </div>
@@ -414,12 +419,13 @@
       </div>
       <div class="num-grid" v-if="showNumGrid">
         <button
-          v-for="num in questionNums"
-          :key="num"
+          v-for="(num, idx) in questionOrder"
+          :key="idx"
           class="num-btn"
-          :class="getNumBtnClass(num)"
-          @click="jumpTo(num)"
-        >{{ num }}</button>
+          :class="getNumBtnClass(num, idx)"
+          @click="jumpTo(idx)"
+          :title="'原题号 ' + num"
+        >{{ wrongBookMode ? num : (idx + 1) }}</button>
       </div>
     </div>
   </div>
@@ -429,6 +435,9 @@
   </div>
 </div>
 
+<script src="libs/vue.global.prod.js"></script>
+<script src="questions.js"></script>
+<script src="answers.js"></script>
 <script>
 const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
 
@@ -478,7 +487,7 @@ function sortOptions(opts) {
 
 createApp({
   setup() {
-    const mode = ref('sequential'); // 'sequential' | 'random'
+    const mode = ref('random'); // 'sequential' | 'random'（默认乱序）
     const wrongBookMode = ref(false);
     const showNumGrid = ref(false);
     const userAnswers = ref({});       // { num: 'A' }
@@ -491,21 +500,21 @@ createApp({
     const allQuestions = (typeof questions !== 'undefined') ? questions : window.QUESTIONS || [];
     const answerMap = (typeof window.ANSWERS !== 'undefined') ? window.ANSWERS : {};
 
-    // 解析每道题的选项
+    // 解析每道题的选项（固定顺序 A-B-C-D）
     const parsedQuestions = allQuestions.map(q => ({
       ...q,
       parsedOptions: sortOptions(parseOptions(q.options))
     }));
 
-    // 所有题号
+    // 所有题号 + 排序后的题号数组
     const allNums = parsedQuestions.map(q => q.num);
     const sortedNums = [...allNums].sort((a, b) => a - b);
 
-    // 题目顺序（当前显示的题号序列）
+    // 题目顺序：questionOrder 存的是原题号，位置 0 显示第 1 题
     const questionOrder = ref([]);
     const currentIndex = ref(0);
 
-    // 当前题目
+    // 当前题目（从 questionOrder[currentIndex] 找到原题）
     const currentQuestion = computed(() => {
       const num = questionOrder.value[currentIndex.value];
       return parsedQuestions.find(q => q.num === num);
@@ -514,6 +523,9 @@ createApp({
     const displayOptions = computed(() => {
       return currentQuestion.value ? currentQuestion.value.parsedOptions : [];
     });
+
+    // 当前显示给用户的题号（永远是 1, 2, 3...）
+    const displayNum = computed(() => currentIndex.value + 1);
 
     // 选项样式
     function getOptionClass(key) {
@@ -579,10 +591,10 @@ createApp({
     const canPrev = computed(() => currentIndex.value > 0);
     const canNext = computed(() => currentIndex.value < questionOrder.value.length - 1);
 
-    // 题号按钮样式
-    function getNumBtnClass(num) {
+    // 题号按钮样式（接收位置索引）
+    function getNumBtnClass(num, idx) {
       const classes = [];
-      if (questionOrder.value[currentIndex.value] === num) classes.push('current');
+      if (currentIndex.value === idx) classes.push('current');
       if (answeredSet.value.has(num)) {
         classes.push(isCorrect(num) ? 'done-correct' : 'done-wrong');
       }
@@ -598,9 +610,11 @@ createApp({
     // 导航
     function prevQuestion() { if (canPrev.value) { currentIndex.value--; saveState(); } }
     function nextQuestion() { if (canNext.value) { currentIndex.value++; saveState(); } }
-    function jumpTo(num) {
-      const idx = questionOrder.value.indexOf(num);
-      if (idx >= 0) { currentIndex.value = idx; saveState(); }
+    function jumpTo(idx) {
+      if (idx >= 0 && idx < questionOrder.value.length) {
+        currentIndex.value = idx;
+        saveState();
+      }
     }
 
     // 模式切换
@@ -615,8 +629,29 @@ createApp({
       if (mode.value === 'sequential') {
         questionOrder.value = [...sortedNums];
       } else {
-        questionOrder.value = [...sortedNums].sort(() => Math.random() - 0.5);
+        // Fisher-Yates 公平洗牌
+        const arr = [...sortedNums];
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        questionOrder.value = arr;
       }
+      currentIndex.value = 0;
+      saveState();
+    }
+
+    // 单独换一套乱序（不清除答题记录）
+    function reshuffle() {
+      if (mode.value === 'sequential') {
+        mode.value = 'random';
+      }
+      const arr = [...questionOrder.value];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      questionOrder.value = arr;
       currentIndex.value = 0;
       saveState();
     }
@@ -634,12 +669,14 @@ createApp({
     }
 
     function resetAll() {
-      if (!confirm('确定要重置所有进度吗？这将清除所有答题记录和错题本。')) return;
+      if (!confirm('确定要重置所有进度吗？这将清除所有答题记录、错题本和当前乱序。')) return;
       userAnswers.value = {};
       wrongBook.value = [];
       answeredSet.value = new Set();
       elapsedTime.value = 0;
-      rebuildQuestionOrder();
+      // 重置时无论当前模式是什么，都重新生成顺序
+      // 如果用户已经在随机模式，就换一套新的乱序
+      rebuildQuestionOrder();  // random 模式下会重新 Fisher-Yates 洗牌
       saveState();
     }
 
@@ -736,14 +773,14 @@ createApp({
       mode, wrongBookMode, showNumGrid,
       userAnswers, wrongBook, answeredSet,
       elapsedTime,
-      questionOrder, currentIndex,
+      questionOrder, currentIndex, displayNum,
       currentQuestion, displayOptions,
       answeredCount, correctCount, wrongCount, accuracy, progressPct,
       canPrev, canNext, questionNums,
       parseOptions,
       getOptionClass, getCorrectAnswer, isCorrect, getNumBtnClass,
       selectOption, prevQuestion, nextQuestion, jumpTo,
-      switchMode, toggleWrongBook, resetAll,
+      switchMode, toggleWrongBook, resetAll, reshuffle,
       formatTime
     };
   }
